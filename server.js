@@ -739,6 +739,9 @@ function getRoomBySocket(socket) {
   return room;
 }
 
+// ---- Modo prueba: ronda solitaria con una canción al azar, no cuenta para el puntaje ----
+const practiceSessions = new Map(); // socket.id -> { song, stage, solved, out }
+
 io.on('connection', socket => {
   socket.on('get-players', cb => cb(PLAYER_NAMES));
 
@@ -896,8 +899,57 @@ io.on('connection', socket => {
     }
   });
 
+  socket.on('start-practice', async cb => {
+    try {
+      const songs = await buildDailyPlaylist(); // reutiliza la búsqueda: 1 canción al azar del pool
+      const song = songs[0];
+      if (!song) return cb({ ok: false, error: 'No se pudo conseguir una canción de prueba. Probá de nuevo.' });
+      practiceSessions.set(socket.id, { song, stage: 1, solved: false, out: false });
+      cb({ ok: true, previewUrl: song.previewUrl, maxStage: MAX_STAGE, stages: SNIPPET_STAGES });
+    } catch (e) {
+      cb({ ok: false, error: 'No se pudo conseguir una canción de prueba. Probá de nuevo.' });
+    }
+  });
+
+  socket.on('practice-skip', () => {
+    const ps = practiceSessions.get(socket.id);
+    if (!ps || ps.solved || ps.out) return;
+    if (ps.stage < MAX_STAGE) {
+      ps.stage += 1;
+      socket.emit('practice-progress', { stage: ps.stage });
+    } else {
+      ps.out = true;
+      socket.emit('practice-progress', { stage: ps.stage, out: true });
+      socket.emit('practice-end', { title: ps.song.title, artist: ps.song.artist, artwork: ps.song.artwork, solved: false });
+      practiceSessions.delete(socket.id);
+    }
+  });
+
+  socket.on('practice-guess', text => {
+    const ps = practiceSessions.get(socket.id);
+    if (!ps || ps.solved || ps.out) return;
+    const correct = isGuessCorrect(text, ps.song);
+    if (correct) {
+      ps.solved = true;
+      socket.emit('practice-progress', { stage: ps.stage, solved: true });
+      socket.emit('practice-end', { title: ps.song.title, artist: ps.song.artist, artwork: ps.song.artwork, solved: true });
+      practiceSessions.delete(socket.id);
+    } else if (ps.stage < MAX_STAGE) {
+      ps.stage += 1;
+      socket.emit('practice-progress', { stage: ps.stage, wrong: true });
+    } else {
+      ps.out = true;
+      socket.emit('practice-progress', { stage: ps.stage, wrong: true, out: true });
+      socket.emit('practice-end', { title: ps.song.title, artist: ps.song.artist, artwork: ps.song.artwork, solved: false });
+      practiceSessions.delete(socket.id);
+    }
+  });
+
   socket.on('leave-room', () => handleLeave(socket));
-  socket.on('disconnect', () => handleLeave(socket));
+  socket.on('disconnect', () => {
+    practiceSessions.delete(socket.id);
+    handleLeave(socket);
+  });
 
   function handleLeave(socket) {
     const r = getRoomBySocket(socket);

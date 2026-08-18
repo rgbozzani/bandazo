@@ -154,6 +154,8 @@
       <div style="height:12px"></div>
       <button id="btn-join" style="width:100%">Entrar</button>
       <div class="error" id="join-error"></div>
+      <div style="height:10px"></div>
+      <button class="secondary" id="btn-practice" style="width:100%">🎧 Jugar de prueba (no cuenta)</button>
     </div>
   </div>
 
@@ -209,8 +211,23 @@
       <div class="feed" id="feed"></div>
     </div>
 
-    <div class="card">
+    <div class="card" id="game-players-card">
       <ul class="player-list" id="game-players"></ul>
+    </div>
+  </div>
+
+  <!-- PRACTICE END -->
+  <div id="screen-practice-end" class="hidden">
+    <div class="card reveal">
+      <div class="muted" style="margin-bottom:10px">🎧 Modo prueba — no suma ni resta puntos</div>
+      <img id="practice-reveal-artwork" src="" alt="" />
+      <h2 id="practice-reveal-title"></h2>
+      <p id="practice-reveal-artist"></p>
+      <div class="muted" id="practice-result-note" style="margin-top:10px"></div>
+      <div style="height:14px"></div>
+      <button id="btn-practice-again" style="width:100%">Otra de prueba</button>
+      <div style="height:8px"></div>
+      <button class="secondary" id="btn-practice-back" style="width:100%">Volver al inicio</button>
     </div>
   </div>
 

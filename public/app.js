@@ -14,6 +14,7 @@ let state = {
   solved: false,
   out: false,
   audioReady: false,
+  isPractice: false,
 };
 
 function escapeHtml(s) {
@@ -21,7 +22,9 @@ function escapeHtml(s) {
 }
 
 function showScreen(id) {
-  ['screen-landing', 'screen-already', 'screen-lobby', 'screen-game', 'screen-round-end', 'screen-final'].forEach(s => hide(s));
+  ['screen-landing', 'screen-already', 'screen-lobby', 'screen-game', 'screen-round-end', 'screen-final', 'screen-practice-end'].forEach(s =>
+    hide(s)
+  );
   show(id);
 }
 
@@ -103,6 +106,8 @@ el('btn-join').onclick = () => {
     el('btn-join').disabled = false;
     if (!res.ok) return (el('join-error').textContent = res.error);
     state.myName = name;
+    state.isPractice = false;
+    el('game-players-card').style.display = '';
     if (res.finished) {
       renderAlreadyPlayed(res.results);
       return;
@@ -119,6 +124,59 @@ el('btn-join').onclick = () => {
     }
   });
 };
+
+// ---------- Modo prueba (no cuenta para el puntaje) ----------
+el('btn-practice').onclick = () => startPractice();
+el('btn-practice-again').onclick = () => startPractice();
+el('btn-practice-back').onclick = () => {
+  state.isPractice = false;
+  el('game-players-card').style.display = '';
+  loadStandings();
+  loadHistory();
+  showScreen('screen-landing');
+};
+
+function startPractice() {
+  el('btn-practice').disabled = true;
+  el('btn-practice-again').disabled = true;
+  socket.emit('start-practice', res => {
+    el('btn-practice').disabled = false;
+    el('btn-practice-again').disabled = false;
+    if (!res.ok) {
+      el('join-error').textContent = res.error;
+      return;
+    }
+    state.isPractice = true;
+    el('game-players-card').style.display = 'none';
+    showScreen('screen-game');
+    handleRoundStart({ previewUrl: res.previewUrl, maxStage: res.maxStage, stages: res.stages, roundIndex: 0, totalRounds: 1 });
+  });
+}
+
+socket.on('practice-progress', data => {
+  state.currentStage = data.stage;
+  renderStageDots();
+  if (data.solved) {
+    lockGuessUI(true);
+    el('guess-feedback').style.color = 'var(--teal)';
+    el('guess-feedback').textContent = '¡Correcto!';
+  } else if (data.out) {
+    lockGuessUI(true);
+    el('guess-feedback').style.color = 'var(--bad)';
+    el('guess-feedback').textContent = 'Se acabaron los intentos.';
+  } else if (data.wrong) {
+    el('guess-feedback').style.color = 'var(--bad)';
+    el('guess-feedback').textContent = 'No es esa. Se reveló más del clip.';
+  }
+});
+
+socket.on('practice-end', data => {
+  el('practice-reveal-artwork').src = data.artwork;
+  el('practice-reveal-title').textContent = data.title;
+  el('practice-reveal-artist').textContent = data.artist;
+  el('practice-result-note').textContent = data.solved ? '¡La acertaste! No suma puntos.' : 'Esta vez no. No resta puntos.';
+  showScreen('screen-practice-end');
+});
 
 function renderAlreadyPlayed(results) {
   el('already-results').innerHTML = results
@@ -166,6 +224,8 @@ function renderPlayerLists() {
 
 // ---------- Game flow ----------
 socket.on('round-start', data => {
+  state.isPractice = false;
+  el('game-players-card').style.display = '';
   showScreen('screen-game');
   handleRoundStart(data);
 });
@@ -177,7 +237,11 @@ function handleRoundStart(data) {
   state.maxStage = data.maxStage;
   state.stages = data.stages;
 
-  el('round-badge').textContent = data.totalRounds > 1 ? `Ronda ${data.roundIndex + 1} de ${data.totalRounds}` : '🎵 La canción de hoy';
+  el('round-badge').textContent = state.isPractice
+    ? '🎧 Prueba (no cuenta)'
+    : data.totalRounds > 1
+      ? `Ronda ${data.roundIndex + 1} de ${data.totalRounds}`
+      : '🎵 La canción de hoy';
   el('grace-note-top').textContent = '';
   el('guess-input').value = '';
   el('guess-input').disabled = false;
@@ -235,7 +299,7 @@ el('guess-input').addEventListener('keydown', e => {
 function submitGuess() {
   const text = el('guess-input').value.trim();
   if (!text) return;
-  socket.emit('player-guess', text);
+  socket.emit(state.isPractice ? 'practice-guess' : 'player-guess', text);
   el('guess-input').value = '';
   hideSuggestions();
 }
@@ -288,7 +352,7 @@ document.addEventListener('click', e => {
   if (!e.target.closest('.guess-wrap')) hideSuggestions();
 });
 
-el('btn-skip').onclick = () => socket.emit('player-skip');
+el('btn-skip').onclick = () => socket.emit(state.isPractice ? 'practice-skip' : 'player-skip');
 
 socket.on('your-progress', data => {
   state.currentStage = data.stage;
