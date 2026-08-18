@@ -878,9 +878,9 @@ io.on('connection', socket => {
 
   socket.on('guess-suggest', async (query, cb) => {
     const q = (query || '').trim();
-    if (q.length <= 5) return cb({ ok: true, results: [] });
+    if (q.length < 5) return cb({ ok: true, results: [] });
     try {
-      const url = `https://itunes.apple.com/search?media=music&entity=song&limit=8&term=${encodeURIComponent(q)}`;
+      const url = `https://itunes.apple.com/search?media=music&entity=song&limit=5&term=${encodeURIComponent(q)}`;
       const resp = await fetch(url);
       const data = await resp.json();
       const seen = new Set();
@@ -891,7 +891,7 @@ io.on('connection', socket => {
         if (seen.has(key)) continue;
         seen.add(key);
         results.push({ title: r.trackName, artist: r.artistName || '' });
-        if (results.length >= 8) break;
+        if (results.length >= 5) break;
       }
       cb({ ok: true, results });
     } catch (e) {

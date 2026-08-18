@@ -309,7 +309,7 @@ let suggestTimer = null;
 el('guess-input').addEventListener('input', () => {
   clearTimeout(suggestTimer);
   const text = el('guess-input').value.trim();
-  if (text.length <= 5) {
+  if (text.length < 5) {
     hideSuggestions();
     return;
   }
