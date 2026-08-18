@@ -37,14 +37,47 @@ socket.on('connect', () => {
     });
   });
   loadStandings();
+  loadHistory();
 });
 
 socket.on('standings-updated', monthly => renderStandings(monthly));
+socket.on('history-updated', history => renderHistory(history));
 
 function loadStandings() {
   socket.emit('get-standings', res => {
     if (res.ok) renderStandings(res.monthly);
   });
+}
+
+function loadHistory() {
+  socket.emit('get-history', res => {
+    if (res.ok) renderHistory(res.history);
+  });
+}
+
+const MONTH_NAMES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+function formatMonth(m) {
+  const [y, mo] = (m || '').split('-');
+  const idx = parseInt(mo, 10) - 1;
+  if (!y || isNaN(idx) || !MONTH_NAMES[idx]) return m || '';
+  return `${MONTH_NAMES[idx]} ${y}`;
+}
+
+function renderHistory(history) {
+  const list = el('history-list');
+  const empty = el('history-empty');
+  if (!history || !history.length) {
+    list.innerHTML = '';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  list.innerHTML = history
+    .map(
+      h =>
+        `<li><span class="month">${formatMonth(h.month)}</span><span class="winner">🏆 ${escapeHtml(h.winnerName)}</span><span class="total">${h.winnerScore} pts</span></li>`
+    )
+    .join('');
 }
 
 function renderStandings(monthly) {
@@ -107,7 +140,8 @@ el('btn-final-back').onclick = () => {
 // ---------- Lobby ----------
 function renderLobby(room) {
   el('lobby-date').textContent = room.date;
-  el('song-count-text').textContent = `${room.songCount} canciones listas para hoy`;
+  el('song-count-text').textContent =
+    room.songCount > 0 ? 'La canción de hoy está lista' : 'Preparando la canción de hoy…';
   el('lobby-players').innerHTML = room.players
     .map(p => `<li><span>${escapeHtml(p.name)}</span><span class="score">${p.score}</span></li>`)
     .join('');
@@ -143,7 +177,7 @@ function handleRoundStart(data) {
   state.maxStage = data.maxStage;
   state.stages = data.stages;
 
-  el('round-badge').textContent = `Ronda ${data.roundIndex + 1} de ${data.totalRounds}`;
+  el('round-badge').textContent = data.totalRounds > 1 ? `Ronda ${data.roundIndex + 1} de ${data.totalRounds}` : '🎵 La canción de hoy';
   el('grace-note-top').textContent = '';
   el('guess-input').value = '';
   el('guess-input').disabled = false;
@@ -283,5 +317,7 @@ socket.on('game-end', data => {
     el('month-end-card').style.display = 'none';
   }
 
+  if (data.history) renderHistory(data.history);
   loadStandings();
+  loadHistory();
 });

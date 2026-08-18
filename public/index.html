@@ -68,6 +68,13 @@
   .standings-list li.p3 .rank{color:#D9924A;}
   .standings-list li .name{flex:1;}
   .standings-list li .total{color:var(--purple); font-weight:700;}
+  .history-list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px;}
+  .history-list li{
+    display:flex; align-items:center; gap:10px; background:var(--panel2); padding:10px 14px; border-radius:10px; font-size:.95rem;
+  }
+  .history-list li .month{width:70px; color:var(--muted); text-transform:capitalize;}
+  .history-list li .winner{flex:1; font-weight:700;}
+  .history-list li .total{color:var(--orange); font-weight:700;}
   .song-count{
     display:flex; align-items:center; gap:8px; background:var(--panel2); border-radius:10px; padding:12px 14px;
     margin:12px 0; color:var(--teal); font-weight:700;
@@ -121,6 +128,12 @@
       <h2>🏆 Tabla del mes</h2>
       <ul class="standings-list" id="standings-list"></ul>
       <div class="muted" id="standings-note" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <h2>🏅 Historial de ganadores</h2>
+      <ul class="history-list" id="history-list"></ul>
+      <div class="muted" id="history-empty">Todavía no hay meses cerrados.</div>
     </div>
 
     <div class="card">

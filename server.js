@@ -31,7 +31,7 @@ const MAX_STAGE = SNIPPET_STAGES.length;
 const POINTS_BY_STAGE = [6, 5, 4, 3, 2, 1]; // puntos según en qué intento acertaste (index 0 = primer intento)
 const FIRST_SOLVER_BONUS = 2;
 const GRACE_PERIOD_MS = 12000; // tiempo extra para el resto tras la primera respuesta correcta
-const MAX_PLAYLIST = 60; // tope de canciones de la partida del día
+const MAX_PLAYLIST = 1; // una sola canción por día: la partida es una única ronda
 
 // Los 6 participantes posibles (grupo fijo).
 const PLAYER_NAMES = ['Al', 'Carmín', 'Dada', 'Gogo', 'Javi', 'Ro'];
@@ -381,6 +381,8 @@ async function searchOne(query) {
 }
 
 async function buildDailyPlaylist() {
+  // recorre las queries en orden aleatorio y se queda con la primera que dé resultado válido
+  // (MAX_PLAYLIST=1 corta el loop apenas hay una canción lista)
   const queries = shuffleArray(Object.values(GENRE_QUERIES).flat());
   const playlist = [];
   const seen = new Set();
@@ -426,6 +428,15 @@ async function initDb() {
       score INTEGER NOT NULL DEFAULT 0,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (play_date, player_name)
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS monthly_winners (
+      month TEXT PRIMARY KEY,
+      winner_name TEXT NOT NULL,
+      winner_score INTEGER NOT NULL,
+      podium JSONB NOT NULL,
+      decided_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
   console.log('Base de datos lista.');
@@ -560,6 +571,46 @@ async function persistTodayScores(r) {
   }
 }
 
+// ---- Historial de ganadores mensuales ----
+async function persistMonthlyWinnerIfNeeded(monthly) {
+  if (!pool || !monthly.isMonthEnd) return;
+  const top = monthly.standings[0];
+  if (!top || top.total <= 0) return; // nadie sumó puntos este mes: no coronamos ganador
+  const podium = monthly.standings.slice(0, 3);
+  try {
+    await pool.query(
+      `INSERT INTO monthly_winners (month, winner_name, winner_score, podium)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (month) DO UPDATE SET
+         winner_name = EXCLUDED.winner_name,
+         winner_score = EXCLUDED.winner_score,
+         podium = EXCLUDED.podium,
+         decided_at = now()`,
+      [monthly.month, top.name, top.total, JSON.stringify(podium)]
+    );
+  } catch (e) {
+    console.error('Error guardando ganador del mes', e);
+  }
+}
+
+async function getWinnersHistory() {
+  if (!pool) return [];
+  try {
+    const r = await pool.query(
+      'SELECT month, winner_name, winner_score, podium FROM monthly_winners ORDER BY month DESC LIMIT 24'
+    );
+    return r.rows.map(row => ({
+      month: row.month,
+      winnerName: row.winner_name,
+      winnerScore: row.winner_score,
+      podium: row.podium,
+    }));
+  } catch (e) {
+    console.error('Error leyendo historial de ganadores', e);
+    return [];
+  }
+}
+
 // ---- Lógica de comparación de respuestas ----
 function normalize(str) {
   return (str || '')
@@ -674,9 +725,12 @@ async function finishGame() {
   const playersFinal = publicPlayers(r).sort((a, b) => b.score - a.score);
   await persistTodayScores(r);
   const monthly = await getMonthlyStandings();
-  io.to('daily').emit('game-end', { players: playersFinal, monthly });
+  await persistMonthlyWinnerIfNeeded(monthly);
+  const history = await getWinnersHistory();
+  io.to('daily').emit('game-end', { players: playersFinal, monthly, history });
   broadcastRoom();
   io.emit('standings-updated', monthly);
+  if (monthly.isMonthEnd) io.emit('history-updated', history);
 }
 
 function getRoomBySocket(socket) {
@@ -694,6 +748,15 @@ io.on('connection', socket => {
       cb({ ok: true, monthly });
     } catch (e) {
       cb({ ok: false, error: 'No se pudo cargar la tabla del mes.' });
+    }
+  });
+
+  socket.on('get-history', async cb => {
+    try {
+      const history = await getWinnersHistory();
+      cb({ ok: true, history });
+    } catch (e) {
+      cb({ ok: false, error: 'No se pudo cargar el historial de ganadores.' });
     }
   });
 
