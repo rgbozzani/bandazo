@@ -29,7 +29,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 const SNIPPET_STAGES = [1, 2, 4, 7, 11, 16]; // segundos acumulados por intento
 const MAX_STAGE = SNIPPET_STAGES.length;
 const POINTS_BY_STAGE = [6, 5, 4, 3, 2, 1]; // puntos según en qué intento acertaste (index 0 = primer intento)
-const FIRST_SOLVER_BONUS = 2;
 const GRACE_PERIOD_MS = 12000; // tiempo extra para el resto tras la primera respuesta correcta
 const MAX_PLAYLIST = 1; // una sola canción por día: la partida es una única ronda
 
@@ -1606,7 +1605,7 @@ io.on('connection', socket => {
       ps.solved = true;
       const isFirst = r.roundWinnerId === null;
       if (isFirst) r.roundWinnerId = socket.id;
-      const points = POINTS_BY_STAGE[ps.stage - 1] + (isFirst ? FIRST_SOLVER_BONUS : 0);
+      const points = POINTS_BY_STAGE[ps.stage - 1];
       player.score += points;
       io.to('daily').emit('player-correct', {
         playerId: socket.id,
