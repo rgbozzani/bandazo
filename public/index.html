@@ -75,6 +75,13 @@
   .history-list li .month{width:70px; color:var(--muted); text-transform:capitalize;}
   .history-list li .winner{flex:1; font-weight:700;}
   .history-list li .total{color:var(--orange); font-weight:700;}
+  .rules-card p{margin:0 0 12px; line-height:1.5; font-size:.92rem;}
+  .rules-card p:last-child{margin-bottom:0;}
+  .rules-list{list-style:none; margin:0 0 12px; padding:0; display:flex; flex-direction:column; gap:6px;}
+  .rules-list li{
+    display:flex; justify-content:space-between; align-items:center; background:var(--panel2); padding:8px 14px; border-radius:10px; font-size:.9rem;
+  }
+  .rules-list li .pts{color:var(--teal); font-weight:700;}
   .song-count{
     display:flex; align-items:center; gap:8px; background:var(--panel2); border-radius:10px; padding:12px 14px;
     margin:12px 0; color:var(--teal); font-weight:700;
@@ -157,6 +164,23 @@
       <div class="error" id="join-error"></div>
       <div style="height:10px"></div>
       <button class="secondary" id="btn-practice" style="width:100%">🎧 Jugar de prueba (no cuenta)</button>
+    </div>
+
+    <div class="card rules-card">
+      <h2>❓ Cómo funciona</h2>
+      <p>Cada día hay una sola canción para adivinar, la misma para los seis. Entrás cuando quieras en el día y jugás a tu ritmo, no hace falta coincidir con nadie.</p>
+      <p>Podés escuchar hasta 6 fragmentos cada vez más largos tocando <strong>Pasar</strong>, sin límite. Lo que sí es limitado son los intentos para adivinar: tenés <strong>2 en total</strong> por partida, los uses en el fragmento que uses.</p>
+      <p>Los puntos dependen del fragmento en el que acertaste, no de si fue tu primer o segundo intento:</p>
+      <ul class="rules-list">
+        <li><span>Fragmento 1 (1s)</span><span class="pts">6 pts</span></li>
+        <li><span>Fragmento 2 (2s)</span><span class="pts">5 pts</span></li>
+        <li><span>Fragmento 3 (4s)</span><span class="pts">4 pts</span></li>
+        <li><span>Fragmento 4 (7s)</span><span class="pts">3 pts</span></li>
+        <li><span>Fragmento 5 (11s)</span><span class="pts">2 pts</span></li>
+        <li><span>Fragmento 6 (16s)</span><span class="pts">1 pt</span></li>
+      </ul>
+      <p class="muted">Si fallás los 2 intentos, sumás 0 esa ronda. También podés tocar "Me rindo" en cualquier momento para cerrar con 0 puntos y volver al inicio.</p>
+      <p class="muted">Ese puntaje del día queda guardado por jugador y se suma a la Tabla del mes. El podio se define el último día hábil de cada mes.</p>
     </div>
   </div>
 
