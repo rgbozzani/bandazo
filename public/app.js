@@ -15,6 +15,7 @@ let state = {
   out: false,
   audioReady: false,
   isPractice: false,
+  gaveUp: false,
 };
 
 function escapeHtml(s) {
@@ -234,6 +235,7 @@ function handleRoundStart(data) {
   state.currentStage = 1;
   state.solved = false;
   state.out = false;
+  state.gaveUp = false;
   state.maxStage = data.maxStage;
   state.stages = data.stages;
 
@@ -354,6 +356,24 @@ document.addEventListener('click', e => {
 
 el('btn-skip').onclick = () => socket.emit(state.isPractice ? 'practice-skip' : 'player-skip');
 
+el('btn-give-up').onclick = () => {
+  if (state.isPractice) {
+    state.isPractice = false;
+    el('game-players-card').style.display = '';
+    loadStandings();
+    loadHistory();
+    showScreen('screen-landing');
+    return;
+  }
+  socket.emit('player-giveup');
+  lockGuessUI(true);
+  state.gaveUp = true;
+  hideSuggestions();
+  loadStandings();
+  loadHistory();
+  showScreen('screen-landing');
+};
+
 socket.on('your-progress', data => {
   state.currentStage = data.stage;
   renderStageDots();
@@ -393,6 +413,7 @@ socket.on('grace-period', data => {
 });
 
 socket.on('round-end', data => {
+  if (state.gaveUp) return; // ya se rindió y volvió a la página principal, no lo arrastramos de vuelta
   showScreen('screen-round-end');
   el('reveal-artwork').src = data.artwork;
   el('reveal-title').textContent = data.title;
@@ -407,6 +428,10 @@ socket.on('round-end', data => {
 });
 
 socket.on('game-end', data => {
+  if (state.gaveUp) {
+    state.gaveUp = false; // la tabla del mes ya se actualiza sola via standings-updated
+    return;
+  }
   showScreen('screen-final');
   const sorted = data.players.slice().sort((a, b) => b.score - a.score);
   el('final-players').innerHTML = sorted

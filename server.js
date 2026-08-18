@@ -1635,6 +1635,16 @@ io.on('connection', socket => {
     }
   });
 
+  socket.on('player-giveup', () => {
+    const r = getRoomBySocket(socket);
+    if (!r || r.state !== 'playing') return;
+    const ps = r.playerRoundState[socket.id];
+    if (!ps || ps.solved || ps.out) return;
+    ps.out = true;
+    socket.emit('your-progress', { stage: ps.stage, out: true, gaveUp: true });
+    maybeEndRoundForEveryone();
+  });
+
   socket.on('guess-suggest', async (query, cb) => {
     const q = (query || '').trim();
     if (q.length < 5) return cb({ ok: true, results: [] });
