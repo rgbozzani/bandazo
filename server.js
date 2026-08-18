@@ -29,7 +29,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 const SNIPPET_STAGES = [1, 2, 4, 7, 11, 16]; // segundos acumulados por intento
 const MAX_STAGE = SNIPPET_STAGES.length;
 const POINTS_BY_STAGE = [6, 5, 4, 3, 2, 1]; // puntos según en qué intento acertaste (index 0 = primer intento)
-const GRACE_PERIOD_MS = 12000; // tiempo extra para el resto tras la primera respuesta correcta
 const MAX_PLAYLIST = 1; // una sola canción por día: la partida es una única ronda
 
 // Los 6 participantes posibles (grupo fijo).
@@ -1222,17 +1221,17 @@ function isLastBusinessDay(dateStr) {
   return lbd.getUTCFullYear() === y && lbd.getUTCMonth() + 1 === m && lbd.getUTCDate() === day;
 }
 
-// ---- Estado en memoria: una sola partida "de hoy" ----
-let room = null;
+// ---- Estado en memoria: la canción del día (cada jugador la juega por su cuenta, cuando quiere) ----
+let dailyState = null; // { date, song }
 
-async function ensureRoom() {
+async function ensureDailySong() {
   const date = todayKey();
-  if (room && room.date === date) return room;
+  if (dailyState && dailyState.date === date) return dailyState;
 
   let dbRow = null;
   if (pool) {
     try {
-      const r = await pool.query('SELECT play_date, songs, started, finished FROM daily_games WHERE play_date = $1', [date]);
+      const r = await pool.query('SELECT songs FROM daily_games WHERE play_date = $1', [date]);
       dbRow = r.rows[0] || null;
     } catch (e) {
       console.error('Error leyendo daily_games', e);
@@ -1240,13 +1239,8 @@ async function ensureRoom() {
   }
 
   let playlist;
-  let finished = false;
-  let started = false;
-
   if (dbRow) {
     playlist = dbRow.songs;
-    finished = dbRow.finished;
-    started = dbRow.started;
   } else {
     playlist = await buildDailyPlaylist();
     if (pool) {
@@ -1261,22 +1255,8 @@ async function ensureRoom() {
     }
   }
 
-  room = {
-    date,
-    playlist,
-    order: [],
-    roundIndex: -1,
-    currentSong: null,
-    players: {},
-    playerRoundState: {},
-    state: finished ? 'finished' : 'lobby',
-    roundTimer: null,
-    roundWinnerId: null,
-    roundEndsAt: null,
-    started,
-    finished,
-  };
-  return room;
+  dailyState = { date, song: playlist[0] || null };
+  return dailyState;
 }
 
 async function getTodayResults(date) {
@@ -1314,19 +1294,27 @@ async function getMonthlyStandings() {
   return { month: `${y}-${m}`, isMonthEnd: isLastBusinessDay(date), standings };
 }
 
-async function persistTodayScores(r) {
+async function hasPlayedToday(name, date) {
+  if (!pool) return null; // sin DB no podemos saber si ya jugó: dejamos jugar siempre (modo dev/test)
+  try {
+    const r = await pool.query('SELECT score FROM daily_scores WHERE play_date = $1 AND player_name = $2', [date, name]);
+    return r.rows[0] ? r.rows[0].score : null;
+  } catch (e) {
+    console.error('Error chequeando si ya jugó hoy', e);
+    return null;
+  }
+}
+
+async function persistPlayerScore(date, name, score) {
   if (!pool) return;
   try {
-    for (const p of Object.values(r.players)) {
-      await pool.query(
-        `INSERT INTO daily_scores (play_date, player_name, score) VALUES ($1, $2, $3)
-         ON CONFLICT (play_date, player_name) DO UPDATE SET score = EXCLUDED.score, updated_at = now()`,
-        [r.date, p.name, p.score]
-      );
-    }
-    await pool.query('UPDATE daily_games SET finished = true WHERE play_date = $1', [r.date]);
+    await pool.query(
+      `INSERT INTO daily_scores (play_date, player_name, score) VALUES ($1, $2, $3)
+       ON CONFLICT (play_date, player_name) DO UPDATE SET score = EXCLUDED.score, updated_at = now()`,
+      [date, name, score]
+    );
   } catch (e) {
-    console.error('Error guardando puntajes del día', e);
+    console.error('Error guardando puntaje del día', e);
   }
 }
 
@@ -1394,109 +1382,41 @@ function isGuessCorrect(guess, song) {
   return false;
 }
 
-function publicPlayers(r) {
-  return Object.values(r.players).map(p => ({
-    id: p.id,
-    name: p.name,
-    score: p.score,
-    connected: p.connected,
-  }));
-}
-
-function roomSummary(r) {
+// ---- Resultado del día para un jugador (recién terminó, o ya había jugado y vuelve a entrar) ----
+async function buildDayResultPayload(date, yourScore) {
+  const state = dailyState && dailyState.date === date ? dailyState : await ensureDailySong();
+  const song = state.song;
+  const results = await getTodayResults(date);
+  const monthly = await getMonthlyStandings();
+  let history = null;
+  if (monthly.isMonthEnd) {
+    await persistMonthlyWinnerIfNeeded(monthly);
+    history = await getWinnersHistory();
+  }
   return {
-    date: r.date,
-    players: publicPlayers(r),
-    songCount: r.playlist.length,
-    state: r.state,
-    roundIndex: r.roundIndex,
-    totalRounds: r.order.length,
+    title: song ? song.title : '',
+    artist: song ? song.artist : '',
+    artwork: song ? song.artwork : '',
+    yourScore,
+    results,
+    monthly,
+    history,
   };
 }
 
-function broadcastRoom() {
-  if (!room) return;
-  io.to('daily').emit('room-update', roomSummary(room));
+async function finishDailySession(socket, ps) {
+  const date = ps.date;
+  const score = ps.solved ? POINTS_BY_STAGE[ps.stage - 1] : 0;
+  dailySessions.delete(socket.id);
+  await persistPlayerScore(date, ps.name, score);
+  const payload = await buildDayResultPayload(date, score);
+  socket.emit('day-result', payload);
+  io.emit('standings-updated', payload.monthly);
+  if (payload.history) io.emit('history-updated', payload.history);
 }
 
-function startRound() {
-  const r = room;
-  r.roundIndex += 1;
-  if (r.roundIndex >= r.order.length) {
-    finishGame();
-    return;
-  }
-  const songIndex = r.order[r.roundIndex];
-  r.currentSong = r.playlist[songIndex];
-  r.state = 'playing';
-  r.roundWinnerId = null;
-  r.roundEndsAt = null;
-  clearTimeout(r.roundTimer);
-
-  r.playerRoundState = {};
-  for (const id of Object.keys(r.players)) {
-    r.playerRoundState[id] = { stage: 1, solved: false, out: false };
-  }
-
-  io.to('daily').emit('round-start', {
-    roundIndex: r.roundIndex,
-    totalRounds: r.order.length,
-    previewUrl: r.currentSong.previewUrl,
-    artwork: r.currentSong.artwork,
-    maxStage: MAX_STAGE,
-    stages: SNIPPET_STAGES,
-  });
-  broadcastRoom();
-}
-
-function maybeEndRoundForEveryone() {
-  const r = room;
-  const states = Object.values(r.playerRoundState);
-  if (states.length === 0) return false;
-  const allDone = states.every(s => s.solved || s.out);
-  if (allDone) {
-    endRound();
-    return true;
-  }
-  return false;
-}
-
-function endRound() {
-  const r = room;
-  if (r.state !== 'playing') return;
-  clearTimeout(r.roundTimer);
-  r.state = 'round-end';
-  const song = r.currentSong;
-  io.to('daily').emit('round-end', {
-    title: song.title,
-    artist: song.artist,
-    artwork: song.artwork,
-    players: publicPlayers(r),
-    isLastRound: r.roundIndex >= r.order.length - 1,
-  });
-  broadcastRoom();
-}
-
-async function finishGame() {
-  const r = room;
-  r.state = 'finished';
-  r.finished = true;
-  const playersFinal = publicPlayers(r).sort((a, b) => b.score - a.score);
-  await persistTodayScores(r);
-  const monthly = await getMonthlyStandings();
-  await persistMonthlyWinnerIfNeeded(monthly);
-  const history = await getWinnersHistory();
-  io.to('daily').emit('game-end', { players: playersFinal, monthly, history });
-  broadcastRoom();
-  io.emit('standings-updated', monthly);
-  if (monthly.isMonthEnd) io.emit('history-updated', history);
-}
-
-function getRoomBySocket(socket) {
-  if (!room) return null;
-  if (!room.players[socket.id]) return null;
-  return room;
-}
+// ---- Sesiones de juego en curso: cada jugador tiene la suya, independiente del resto ----
+const dailySessions = new Map(); // socket.id -> { name, date, stage, solved, out }
 
 // ---- Modo prueba: ronda solitaria con una canción al azar, no cuenta para el puntaje ----
 const practiceSessions = new Map(); // socket.id -> { song, stage, solved, out }
@@ -1525,63 +1445,24 @@ io.on('connection', socket => {
   socket.on('join-today', async (name, cb) => {
     try {
       if (!PLAYER_NAMES.includes(name)) return cb({ ok: false, error: 'Elegí tu nombre de la lista.' });
-      const r = await ensureRoom();
-      if (r.state === 'finished') {
-        const results = await getTodayResults(r.date);
-        return cb({ ok: true, finished: true, date: r.date, results });
+      const date = todayKey();
+      const already = await hasPlayedToday(name, date);
+      if (already !== null) {
+        const payload = await buildDayResultPayload(date, already);
+        return cb({ ok: true, finished: true, ...payload });
       }
-      r.players[socket.id] = { id: socket.id, name, score: 0, connected: true };
-      if (r.state === 'playing' && r.currentSong) {
-        r.playerRoundState[socket.id] = { stage: 1, solved: false, out: false };
-      }
-      socket.join('daily');
+      const { song } = await ensureDailySong();
+      if (!song) return cb({ ok: false, error: 'No se pudo preparar la canción de hoy. Probá de nuevo en un momento.' });
       socket.data.playerName = name;
-      const current =
-        r.state === 'playing' && r.currentSong
-          ? {
-              roundIndex: r.roundIndex,
-              totalRounds: r.order.length,
-              previewUrl: r.currentSong.previewUrl,
-              artwork: r.currentSong.artwork,
-              maxStage: MAX_STAGE,
-              stages: SNIPPET_STAGES,
-            }
-          : null;
-      cb({ ok: true, finished: false, room: roomSummary(r), you: r.players[socket.id], current });
-      broadcastRoom();
+      dailySessions.set(socket.id, { name, date, stage: 1, solved: false, out: false });
+      cb({ ok: true, finished: false, previewUrl: song.previewUrl, maxStage: MAX_STAGE, stages: SNIPPET_STAGES });
     } catch (e) {
       cb({ ok: false, error: 'No se pudo entrar a la partida de hoy.' });
     }
   });
 
-  socket.on('start-game', () => {
-    const r = room;
-    if (!r || r.state !== 'lobby') return;
-    if (Object.keys(r.players).length === 0) return;
-    const idx = r.playlist.map((_, i) => i);
-    for (let i = idx.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [idx[i], idx[j]] = [idx[j], idx[i]];
-    }
-    r.order = idx;
-    r.roundIndex = -1;
-    for (const p of Object.values(r.players)) p.score = 0;
-    r.started = true;
-    if (pool) pool.query('UPDATE daily_games SET started = true WHERE play_date = $1', [r.date]).catch(() => {});
-    startRound();
-  });
-
-  socket.on('next-round', () => {
-    const r = getRoomBySocket(socket);
-    if (!r) return;
-    if (r.state !== 'round-end' && r.state !== 'lobby') return;
-    startRound();
-  });
-
-  socket.on('player-skip', () => {
-    const r = getRoomBySocket(socket);
-    if (!r || r.state !== 'playing') return;
-    const ps = r.playerRoundState[socket.id];
+  socket.on('player-skip', async () => {
+    const ps = dailySessions.get(socket.id);
     if (!ps || ps.solved || ps.out) return;
     if (ps.stage < MAX_STAGE) {
       ps.stage += 1;
@@ -1589,60 +1470,37 @@ io.on('connection', socket => {
     } else {
       ps.out = true;
       socket.emit('your-progress', { stage: ps.stage, out: true });
-      maybeEndRoundForEveryone();
+      await finishDailySession(socket, ps);
     }
   });
 
-  socket.on('player-guess', text => {
-    const r = getRoomBySocket(socket);
-    if (!r || r.state !== 'playing') return;
-    const ps = r.playerRoundState[socket.id];
-    const player = r.players[socket.id];
-    if (!ps || !player || ps.solved || ps.out) return;
+  socket.on('player-guess', async text => {
+    const ps = dailySessions.get(socket.id);
+    if (!ps || ps.solved || ps.out) return;
+    const song = dailyState && dailyState.date === ps.date ? dailyState.song : null;
+    if (!song) return;
 
-    const correct = isGuessCorrect(text, r.currentSong);
+    const correct = isGuessCorrect(text, song);
     if (correct) {
       ps.solved = true;
-      const isFirst = r.roundWinnerId === null;
-      if (isFirst) r.roundWinnerId = socket.id;
-      const points = POINTS_BY_STAGE[ps.stage - 1];
-      player.score += points;
-      io.to('daily').emit('player-correct', {
-        playerId: socket.id,
-        playerName: player.name,
-        points,
-        isFirst,
-      });
       socket.emit('your-progress', { stage: ps.stage, solved: true });
-
-      if (isFirst && !r.roundTimer) {
-        r.roundEndsAt = Date.now() + GRACE_PERIOD_MS;
-        r.roundTimer = setTimeout(() => endRound(), GRACE_PERIOD_MS);
-        io.to('daily').emit('grace-period', { endsAt: r.roundEndsAt });
-      }
-      if (!maybeEndRoundForEveryone()) {
-        broadcastRoom();
-      }
+      await finishDailySession(socket, ps);
+    } else if (ps.stage < MAX_STAGE) {
+      ps.stage += 1;
+      socket.emit('your-progress', { stage: ps.stage, wrong: true });
     } else {
-      if (ps.stage < MAX_STAGE) {
-        ps.stage += 1;
-        socket.emit('your-progress', { stage: ps.stage, wrong: true });
-      } else {
-        ps.out = true;
-        socket.emit('your-progress', { stage: ps.stage, wrong: true, out: true });
-        maybeEndRoundForEveryone();
-      }
+      ps.out = true;
+      socket.emit('your-progress', { stage: ps.stage, wrong: true, out: true });
+      await finishDailySession(socket, ps);
     }
   });
 
-  socket.on('player-giveup', () => {
-    const r = getRoomBySocket(socket);
-    if (!r || r.state !== 'playing') return;
-    const ps = r.playerRoundState[socket.id];
+  socket.on('player-giveup', async () => {
+    const ps = dailySessions.get(socket.id);
     if (!ps || ps.solved || ps.out) return;
     ps.out = true;
     socket.emit('your-progress', { stage: ps.stage, out: true, gaveUp: true });
-    maybeEndRoundForEveryone();
+    await finishDailySession(socket, ps);
   });
 
   socket.on('guess-suggest', async (query, cb) => {
@@ -1714,20 +1572,11 @@ io.on('connection', socket => {
     }
   });
 
-  socket.on('leave-room', () => handleLeave(socket));
+  socket.on('leave-room', () => dailySessions.delete(socket.id));
   socket.on('disconnect', () => {
     practiceSessions.delete(socket.id);
-    handleLeave(socket);
+    dailySessions.delete(socket.id);
   });
-
-  function handleLeave(socket) {
-    const r = getRoomBySocket(socket);
-    if (!r) return;
-    delete r.players[socket.id];
-    delete r.playerRoundState[socket.id];
-    maybeEndRoundForEveryone();
-    broadcastRoom();
-  }
 });
 
 initDb()

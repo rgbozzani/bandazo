@@ -146,7 +146,8 @@
     </div>
 
     <div class="card">
-      <h2>Entrar a la partida de hoy</h2>
+      <h2>Jugá tu Bandletina de hoy</h2>
+      <p class="muted" style="margin-top:-6px">Entrá cuando quieras en el día, a tu ritmo.</p>
       <label class="field-label">¿Quién sos?</label>
       <select id="player-select">
         <option value="" selected disabled>Elegí tu nombre</option>
@@ -159,37 +160,11 @@
     </div>
   </div>
 
-  <!-- YA JUGADA -->
-  <div id="screen-already" class="hidden">
-    <div class="card">
-      <h2>Ya se jugó la partida de hoy 🎉</h2>
-      <p class="muted">Volvé mañana para la próxima. Así quedó hoy:</p>
-      <ul class="player-list" id="already-results"></ul>
-      <div style="height:12px"></div>
-      <button class="secondary" id="btn-already-back" style="width:100%">Volver</button>
-    </div>
-  </div>
-
-  <!-- LOBBY -->
-  <div id="screen-lobby" class="hidden">
-    <div class="card">
-      <div class="top-bar">
-        <div>Partida de <span class="date-badge" id="lobby-date"></span></div>
-      </div>
-      <div class="song-count" id="song-count-box">🎵 <span id="song-count-text"></span></div>
-      <ul class="player-list" id="lobby-players"></ul>
-      <div style="height:14px"></div>
-      <button id="btn-start" style="width:100%">Iniciar partida</button>
-      <div class="muted" id="start-hint" style="margin-top:8px">Cuando estén listos, cualquiera puede arrancar.</div>
-    </div>
-  </div>
-
   <!-- GAME -->
   <div id="screen-game" class="hidden">
     <div class="card">
       <div class="top-bar">
-        <span class="badge-round" id="round-badge"></span>
-        <span class="muted" id="grace-note-top"></span>
+        <span class="badge-round" id="round-badge">🎵 La canción de hoy</span>
       </div>
       <div class="stage-dots" id="stage-dots"></div>
       <button class="play-btn" id="btn-play">▶ Reproducir clip</button>
@@ -207,13 +182,6 @@
         <button class="secondary small" id="btn-give-up">🏳️ Me rindo</button>
       </div>
       <div class="error" id="guess-feedback"></div>
-      <div class="grace-note hidden" id="grace-note"></div>
-
-      <div class="feed" id="feed"></div>
-    </div>
-
-    <div class="card" id="game-players-card">
-      <ul class="player-list" id="game-players"></ul>
     </div>
   </div>
 
@@ -232,27 +200,21 @@
     </div>
   </div>
 
-  <!-- ROUND END -->
-  <div id="screen-round-end" class="hidden">
+  <!-- RESULTADO DEL DÍA (recién jugaste, o ya habías jugado hoy) -->
+  <div id="screen-final" class="hidden">
     <div class="card reveal">
       <img id="reveal-artwork" src="" alt="" />
       <h2 id="reveal-title"></h2>
       <p id="reveal-artist"></p>
-      <div style="height:14px"></div>
-      <ul class="player-list" id="round-end-players"></ul>
-      <div style="height:14px"></div>
-      <button id="btn-next-round" style="width:100%">Siguiente ronda</button>
+      <div class="muted" id="final-your-score" style="margin-top:10px"></div>
     </div>
-  </div>
-
-  <!-- FINAL -->
-  <div id="screen-final" class="hidden">
     <div class="card" id="month-end-card" style="display:none">
       <div class="month-end-banner">🏆 ¡Último día hábil del mes! Podio mensual</div>
       <div class="podium" id="podium"></div>
     </div>
     <div class="card">
       <h2 style="text-align:center; margin-top:0">Resultado de hoy</h2>
+      <p class="muted" style="text-align:center; margin-top:-8px">Se va completando a medida que cada uno juega.</p>
       <ul class="final-list" id="final-players"></ul>
       <div style="height:12px"></div>
       <button class="secondary" id="btn-final-back" style="width:100%">Volver al inicio</button>

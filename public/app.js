@@ -5,9 +5,6 @@ const show = id => el(id).classList.remove('hidden');
 const hide = id => el(id).classList.add('hidden');
 
 let state = {
-  myId: null,
-  myName: null,
-  players: [],
   currentStage: 1,
   maxStage: 6,
   stages: [1, 2, 4, 7, 11, 16],
@@ -15,7 +12,6 @@ let state = {
   out: false,
   audioReady: false,
   isPractice: false,
-  gaveUp: false,
 };
 
 function escapeHtml(s) {
@@ -23,9 +19,7 @@ function escapeHtml(s) {
 }
 
 function showScreen(id) {
-  ['screen-landing', 'screen-already', 'screen-lobby', 'screen-game', 'screen-round-end', 'screen-final', 'screen-practice-end'].forEach(s =>
-    hide(s)
-  );
+  ['screen-landing', 'screen-game', 'screen-final', 'screen-practice-end'].forEach(s => hide(s));
   show(id);
 }
 
@@ -98,7 +92,7 @@ function renderStandings(monthly) {
     : `Acumulado de ${monthly.month}. El podio se arma el último día hábil del mes.`;
 }
 
-// ---------- Entrar a la partida de hoy ----------
+// ---------- Entrar a jugar la Bandletina de hoy (cada uno cuando quiere) ----------
 el('btn-join').onclick = () => {
   const name = el('player-select').value;
   if (!name) return (el('join-error').textContent = 'Elegí tu nombre de la lista.');
@@ -106,23 +100,13 @@ el('btn-join').onclick = () => {
   socket.emit('join-today', name, res => {
     el('btn-join').disabled = false;
     if (!res.ok) return (el('join-error').textContent = res.error);
-    state.myName = name;
     state.isPractice = false;
-    el('game-players-card').style.display = '';
     if (res.finished) {
-      renderAlreadyPlayed(res.results);
+      renderDayResult(res);
       return;
     }
-    state.players = res.room.players;
-    renderLobby(res.room);
-    if (res.current) {
-      showScreen('screen-game');
-      handleRoundStart(res.current);
-    } else if (res.room.state === 'round-end') {
-      showScreen('screen-round-end');
-    } else {
-      showScreen('screen-lobby');
-    }
+    showScreen('screen-game');
+    handleRoundStart(res);
   });
 };
 
@@ -131,7 +115,6 @@ el('btn-practice').onclick = () => startPractice();
 el('btn-practice-again').onclick = () => startPractice();
 el('btn-practice-back').onclick = () => {
   state.isPractice = false;
-  el('game-players-card').style.display = '';
   loadStandings();
   loadHistory();
   showScreen('screen-landing');
@@ -148,9 +131,8 @@ function startPractice() {
       return;
     }
     state.isPractice = true;
-    el('game-players-card').style.display = 'none';
     showScreen('screen-game');
-    handleRoundStart({ previewUrl: res.previewUrl, maxStage: res.maxStage, stages: res.stages, roundIndex: 0, totalRounds: 1 });
+    handleRoundStart({ previewUrl: res.previewUrl, maxStage: res.maxStage, stages: res.stages });
   });
 }
 
@@ -179,58 +161,12 @@ socket.on('practice-end', data => {
   showScreen('screen-practice-end');
 });
 
-function renderAlreadyPlayed(results) {
-  el('already-results').innerHTML = results
-    .map(p => `<li><span>${escapeHtml(p.name)}</span><span class="score">${p.score}</span></li>`)
-    .join('');
-  showScreen('screen-already');
-}
-
-el('btn-already-back').onclick = () => {
-  loadStandings();
-  showScreen('screen-landing');
-};
-
 el('btn-final-back').onclick = () => {
   loadStandings();
   showScreen('screen-landing');
 };
 
-// ---------- Lobby ----------
-function renderLobby(room) {
-  el('lobby-date').textContent = room.date;
-  el('song-count-text').textContent =
-    room.songCount > 0 ? 'La canción de hoy está lista' : 'Preparando la canción de hoy…';
-  el('lobby-players').innerHTML = room.players
-    .map(p => `<li><span>${escapeHtml(p.name)}</span><span class="score">${p.score}</span></li>`)
-    .join('');
-  el('btn-start').disabled = room.players.length === 0;
-}
-
-el('btn-start').onclick = () => socket.emit('start-game');
-el('btn-next-round').onclick = () => socket.emit('next-round');
-
-// ---------- Room updates ----------
-socket.on('room-update', room => {
-  state.players = room.players;
-  if (room.state === 'lobby') renderLobby(room);
-  renderPlayerLists();
-});
-
-function renderPlayerLists() {
-  const html = state.players.map(p => `<li><span>${escapeHtml(p.name)}</span><span class="score">${p.score}</span></li>`).join('');
-  el('game-players').innerHTML = html;
-  el('round-end-players').innerHTML = html;
-}
-
 // ---------- Game flow ----------
-socket.on('round-start', data => {
-  state.isPractice = false;
-  el('game-players-card').style.display = '';
-  showScreen('screen-game');
-  handleRoundStart(data);
-});
-
 function handleRoundStart(data) {
   state.currentStage = 1;
   state.solved = false;
@@ -239,19 +175,13 @@ function handleRoundStart(data) {
   state.maxStage = data.maxStage;
   state.stages = data.stages;
 
-  el('round-badge').textContent = state.isPractice
-    ? '🎧 Prueba (no cuenta)'
-    : data.totalRounds > 1
-      ? `Ronda ${data.roundIndex + 1} de ${data.totalRounds}`
-      : '🎵 La canción de hoy';
-  el('grace-note-top').textContent = '';
+  el('round-badge').textContent = state.isPractice ? '🎧 Prueba (no cuenta)' : '🎵 La canción de hoy';
   el('guess-input').value = '';
   el('guess-input').disabled = false;
   el('btn-guess').disabled = false;
   el('btn-skip').disabled = false;
+  el('btn-give-up').disabled = false;
   el('guess-feedback').textContent = '';
-  hide('grace-note');
-  el('feed').innerHTML = '';
   hideSuggestions();
 
   const audio = el('audio');
@@ -291,6 +221,7 @@ function lockGuessUI(disabled) {
   el('guess-input').disabled = disabled;
   el('btn-guess').disabled = disabled;
   el('btn-skip').disabled = disabled;
+  el('btn-give-up').disabled = disabled;
 }
 
 el('btn-guess').onclick = submitGuess;
@@ -359,7 +290,6 @@ el('btn-skip').onclick = () => socket.emit(state.isPractice ? 'practice-skip' : 
 el('btn-give-up').onclick = () => {
   if (state.isPractice) {
     state.isPractice = false;
-    el('game-players-card').style.display = '';
     loadStandings();
     loadHistory();
     showScreen('screen-landing');
@@ -367,11 +297,7 @@ el('btn-give-up').onclick = () => {
   }
   socket.emit('player-giveup');
   lockGuessUI(true);
-  state.gaveUp = true;
   hideSuggestions();
-  loadStandings();
-  loadHistory();
-  showScreen('screen-landing');
 };
 
 socket.on('your-progress', data => {
@@ -381,63 +307,34 @@ socket.on('your-progress', data => {
     state.solved = true;
     lockGuessUI(true);
     el('guess-feedback').style.color = 'var(--teal)';
-    el('guess-feedback').textContent = '¡Correcto! Esperá a que termine la ronda.';
+    el('guess-feedback').textContent = '¡Correcto!';
   } else if (data.out) {
     state.out = true;
     lockGuessUI(true);
     el('guess-feedback').style.color = 'var(--bad)';
-    el('guess-feedback').textContent = 'Se acabaron tus intentos para esta ronda.';
+    el('guess-feedback').textContent = data.gaveUp ? 'Te rendiste.' : 'Se acabaron tus intentos.';
   } else if (data.wrong) {
     el('guess-feedback').style.color = 'var(--bad)';
     el('guess-feedback').textContent = 'No es esa. Se reveló más del clip.';
   }
 });
 
-socket.on('player-correct', data => {
-  const item = document.createElement('div');
-  item.className = 'item' + (data.isFirst ? ' win' : '');
-  item.textContent = `${data.playerName} acertó ${data.isFirst ? '¡primero! ' : ''}(+${data.points} pts)`;
-  el('feed').prepend(item);
-});
+// ---------- Resultado del día: recién terminaste tu ronda, o ya habías jugado hoy ----------
+socket.on('day-result', data => renderDayResult(data));
 
-socket.on('grace-period', data => {
-  show('grace-note');
-  const note = el('grace-note');
-  const tick = () => {
-    const remaining = Math.max(0, Math.round((data.endsAt - Date.now()) / 1000));
-    note.textContent = `Alguien ya acertó. Quedan ${remaining}s para que el resto adivine.`;
-    el('grace-note-top').textContent = `⏱ ${remaining}s`;
-    if (remaining > 0) requestAnimationFrame(() => setTimeout(tick, 250));
-  };
-  tick();
-});
-
-socket.on('round-end', data => {
-  if (state.gaveUp) return; // ya se rindió y volvió a la página principal, no lo arrastramos de vuelta
-  showScreen('screen-round-end');
+function renderDayResult(data) {
+  showScreen('screen-final');
   el('reveal-artwork').src = data.artwork;
   el('reveal-title').textContent = data.title;
   el('reveal-artist').textContent = data.artist;
-  const playersHtml = data.players
-    .slice()
-    .sort((a, b) => b.score - a.score)
-    .map(p => `<li><span>${escapeHtml(p.name)}</span><span class="score">${p.score}</span></li>`)
-    .join('');
-  el('round-end-players').innerHTML = playersHtml;
-  el('btn-next-round').textContent = data.isLastRound ? 'Ver resultados finales' : 'Siguiente ronda';
-});
+  el('final-your-score').textContent =
+    data.yourScore > 0 ? `Sumaste ${data.yourScore} pts hoy.` : 'No sumaste puntos hoy.';
 
-socket.on('game-end', data => {
-  if (state.gaveUp) {
-    state.gaveUp = false; // la tabla del mes ya se actualiza sola via standings-updated
-    return;
-  }
-  showScreen('screen-final');
-  const sorted = data.players.slice().sort((a, b) => b.score - a.score);
+  const sorted = data.results.slice().sort((a, b) => b.score - a.score);
   el('final-players').innerHTML = sorted
     .map(
       (p, i) =>
-        `<li class="${i === 0 ? 'first' : ''}"><span>${i === 0 ? '🏆 ' : `${i + 1}. `}${escapeHtml(p.name)}</span><span class="score">${p.score}</span></li>`
+        `<li class="${i === 0 && p.score > 0 ? 'first' : ''}"><span>${i === 0 && p.score > 0 ? '🏆 ' : `${i + 1}. `}${escapeHtml(p.name)}</span><span class="score">${p.score}</span></li>`
     )
     .join('');
 
@@ -446,7 +343,6 @@ socket.on('game-end', data => {
     const top3 = data.monthly.standings.slice(0, 3);
     const stepClass = ['s1', 's2', 's3'];
     const medal = ['🥇', '🥈', '🥉'];
-    // orden visual: 2do, 1ro, 3ro (podio), pero mantenemos el orden de datos top3[0..2]
     el('podium').innerHTML = top3
       .map(
         (p, i) =>
@@ -458,6 +354,5 @@ socket.on('game-end', data => {
   }
 
   if (data.history) renderHistory(data.history);
-  loadStandings();
-  loadHistory();
-});
+  if (data.monthly) renderStandings(data.monthly);
+}
