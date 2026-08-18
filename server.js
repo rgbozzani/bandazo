@@ -26,9 +26,9 @@ const TIMEZONE = 'America/Argentina/Buenos_Aires';
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---- Config del juego ----
-const SNIPPET_STAGES = [1, 2, 4, 7, 11, 16]; // segundos acumulados por intento
+const SNIPPET_STAGES = [2, 8]; // segundos acumulados por intento
 const MAX_STAGE = SNIPPET_STAGES.length;
-const POINTS_BY_STAGE = [6, 5, 4, 3, 2, 1]; // puntos según en qué intento acertaste (index 0 = primer intento)
+const POINTS_BY_STAGE = [6, 3]; // puntos según en qué intento acertaste (index 0 = primer intento)
 const MAX_PLAYLIST = 1; // una sola canción por día: la partida es una única ronda
 
 // Los 6 participantes posibles (grupo fijo).

@@ -6,8 +6,8 @@ const hide = id => el(id).classList.add('hidden');
 
 let state = {
   currentStage: 1,
-  maxStage: 6,
-  stages: [1, 2, 4, 7, 11, 16],
+  maxStage: 2,
+  stages: [2, 8],
   solved: false,
   out: false,
   audioReady: false,
