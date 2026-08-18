@@ -143,7 +143,7 @@ el('song-search').oninput = e => {
       res.results.forEach(song => {
         const div = document.createElement('div');
         div.className = 'song-item';
-        div.innerHTML = `<img src="$${song.artwork}" onerror="this.style.visibility='hidden'"/>
+        div.innerHTML = `<img src="${song.artwork}" onerror="this.style.visibility='hidden'"/>
           <div class="meta"><div class="t">${escapeHtml(song.title)}</div><div class="a">${escapeHtml(song.artist)}</div></div>
           <button class="small secondary" type="button">Agregar</button>`;
         div.querySelector('button').onclick = () => {
@@ -156,7 +156,7 @@ el('song-search').oninput = e => {
 };
 
 function escapeHtml(s) {
-  return ((s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  return (s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 el('btn-start').onclick = () => socket.emit('start-game');
@@ -182,7 +182,7 @@ function renderRoom(room) {
       (s, i) =>
         `<div class="song-item"><img src="${s.artwork}" onerror="this.style.visibility='hidden'"/>
         <div class="meta"><div class="t">${escapeHtml(s.title)}</div><div class="a">${escapeHtml(s.artist)}</div></div>
-        ${state.isHost && room.state === 'lobby' ? `<button class="small secondary" data-i="$${i}">Quitar</button>` : ''}
+        ${state.isHost && room.state === 'lobby' ? `<button class="small secondary" data-i="${i}">Quitar</button>` : ''}
         </div>`
     )
     .join('');
