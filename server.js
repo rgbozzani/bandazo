@@ -26,9 +26,10 @@ const TIMEZONE = 'America/Argentina/Buenos_Aires';
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---- Config del juego ----
-const SNIPPET_STAGES = [2, 8]; // segundos acumulados por intento
+const SNIPPET_STAGES = [1, 2, 4, 7, 11, 16]; // segundos acumulados por instancia de escucha
 const MAX_STAGE = SNIPPET_STAGES.length;
-const POINTS_BY_STAGE = [6, 3]; // puntos según en qué intento acertaste (index 0 = primer intento)
+const POINTS_BY_STAGE = [6, 5, 4, 3, 2, 1]; // puntos según en qué instancia acertaste (index 0 = primera instancia)
+const MAX_GUESSES = 2; // intentos de adivinar totales (independiente de cuántas instancias escuches)
 const MAX_PLAYLIST = 1; // una sola canción por día: la partida es una única ronda
 
 // Los 6 participantes posibles (grupo fijo).
@@ -1454,8 +1455,15 @@ io.on('connection', socket => {
       const { song } = await ensureDailySong();
       if (!song) return cb({ ok: false, error: 'No se pudo preparar la canción de hoy. Probá de nuevo en un momento.' });
       socket.data.playerName = name;
-      dailySessions.set(socket.id, { name, date, stage: 1, solved: false, out: false });
-      cb({ ok: true, finished: false, previewUrl: song.previewUrl, maxStage: MAX_STAGE, stages: SNIPPET_STAGES });
+      dailySessions.set(socket.id, { name, date, stage: 1, guessesUsed: 0, solved: false, out: false });
+      cb({
+        ok: true,
+        finished: false,
+        previewUrl: song.previewUrl,
+        maxStage: MAX_STAGE,
+        stages: SNIPPET_STAGES,
+        maxGuesses: MAX_GUESSES,
+      });
     } catch (e) {
       cb({ ok: false, error: 'No se pudo entrar a la partida de hoy.' });
     }
@@ -1466,12 +1474,9 @@ io.on('connection', socket => {
     if (!ps || ps.solved || ps.out) return;
     if (ps.stage < MAX_STAGE) {
       ps.stage += 1;
-      socket.emit('your-progress', { stage: ps.stage });
-    } else {
-      ps.out = true;
-      socket.emit('your-progress', { stage: ps.stage, out: true });
-      await finishDailySession(socket, ps);
+      socket.emit('your-progress', { stage: ps.stage, guessesUsed: ps.guessesUsed });
     }
+    // si ya está en la última instancia, "pasar" no hace nada más: no hay más clip para revelar
   });
 
   socket.on('player-guess', async text => {
@@ -1483,15 +1488,17 @@ io.on('connection', socket => {
     const correct = isGuessCorrect(text, song);
     if (correct) {
       ps.solved = true;
-      socket.emit('your-progress', { stage: ps.stage, solved: true });
+      socket.emit('your-progress', { stage: ps.stage, guessesUsed: ps.guessesUsed, solved: true });
       await finishDailySession(socket, ps);
-    } else if (ps.stage < MAX_STAGE) {
-      ps.stage += 1;
-      socket.emit('your-progress', { stage: ps.stage, wrong: true });
     } else {
-      ps.out = true;
-      socket.emit('your-progress', { stage: ps.stage, wrong: true, out: true });
-      await finishDailySession(socket, ps);
+      ps.guessesUsed += 1;
+      if (ps.guessesUsed >= MAX_GUESSES) {
+        ps.out = true;
+        socket.emit('your-progress', { stage: ps.stage, guessesUsed: ps.guessesUsed, wrong: true, out: true });
+        await finishDailySession(socket, ps);
+      } else {
+        socket.emit('your-progress', { stage: ps.stage, guessesUsed: ps.guessesUsed, wrong: true });
+      }
     }
   });
 
@@ -1531,8 +1538,8 @@ io.on('connection', socket => {
       const songs = await buildDailyPlaylist(); // reutiliza la búsqueda: 1 canción al azar del pool
       const song = songs[0];
       if (!song) return cb({ ok: false, error: 'No se pudo conseguir una canción de prueba. Probá de nuevo.' });
-      practiceSessions.set(socket.id, { song, stage: 1, solved: false, out: false });
-      cb({ ok: true, previewUrl: song.previewUrl, maxStage: MAX_STAGE, stages: SNIPPET_STAGES });
+      practiceSessions.set(socket.id, { song, stage: 1, guessesUsed: 0, solved: false, out: false });
+      cb({ ok: true, previewUrl: song.previewUrl, maxStage: MAX_STAGE, stages: SNIPPET_STAGES, maxGuesses: MAX_GUESSES });
     } catch (e) {
       cb({ ok: false, error: 'No se pudo conseguir una canción de prueba. Probá de nuevo.' });
     }
@@ -1543,13 +1550,9 @@ io.on('connection', socket => {
     if (!ps || ps.solved || ps.out) return;
     if (ps.stage < MAX_STAGE) {
       ps.stage += 1;
-      socket.emit('practice-progress', { stage: ps.stage });
-    } else {
-      ps.out = true;
-      socket.emit('practice-progress', { stage: ps.stage, out: true });
-      socket.emit('practice-end', { title: ps.song.title, artist: ps.song.artist, artwork: ps.song.artwork, solved: false });
-      practiceSessions.delete(socket.id);
+      socket.emit('practice-progress', { stage: ps.stage, guessesUsed: ps.guessesUsed });
     }
+    // si ya está en la última instancia, "pasar" no hace nada más: no hay más clip para revelar
   });
 
   socket.on('practice-guess', text => {
@@ -1558,15 +1561,17 @@ io.on('connection', socket => {
     const correct = isGuessCorrect(text, ps.song);
     if (correct) {
       ps.solved = true;
-      socket.emit('practice-progress', { stage: ps.stage, solved: true });
+      socket.emit('practice-progress', { stage: ps.stage, guessesUsed: ps.guessesUsed, solved: true });
       socket.emit('practice-end', { title: ps.song.title, artist: ps.song.artist, artwork: ps.song.artwork, solved: true });
       practiceSessions.delete(socket.id);
-    } else if (ps.stage < MAX_STAGE) {
-      ps.stage += 1;
-      socket.emit('practice-progress', { stage: ps.stage, wrong: true });
+      return;
+    }
+    ps.guessesUsed += 1;
+    if (ps.guessesUsed < MAX_GUESSES) {
+      socket.emit('practice-progress', { stage: ps.stage, guessesUsed: ps.guessesUsed, wrong: true });
     } else {
       ps.out = true;
-      socket.emit('practice-progress', { stage: ps.stage, wrong: true, out: true });
+      socket.emit('practice-progress', { stage: ps.stage, guessesUsed: ps.guessesUsed, wrong: true, out: true });
       socket.emit('practice-end', { title: ps.song.title, artist: ps.song.artist, artwork: ps.song.artwork, solved: false });
       practiceSessions.delete(socket.id);
     }

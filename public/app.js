@@ -6,8 +6,10 @@ const hide = id => el(id).classList.add('hidden');
 
 let state = {
   currentStage: 1,
-  maxStage: 2,
-  stages: [2, 8],
+  maxStage: 6,
+  stages: [1, 2, 4, 7, 11, 16],
+  maxGuesses: 2,
+  guessesUsed: 0,
   solved: false,
   out: false,
   audioReady: false,
@@ -132,13 +134,15 @@ function startPractice() {
     }
     state.isPractice = true;
     showScreen('screen-game');
-    handleRoundStart({ previewUrl: res.previewUrl, maxStage: res.maxStage, stages: res.stages });
+    handleRoundStart({ previewUrl: res.previewUrl, maxStage: res.maxStage, stages: res.stages, maxGuesses: res.maxGuesses });
   });
 }
 
 socket.on('practice-progress', data => {
   state.currentStage = data.stage;
+  state.guessesUsed = data.guessesUsed;
   renderStageDots();
+  updateSkipButton();
   if (data.solved) {
     lockGuessUI(true);
     el('guess-feedback').style.color = 'var(--teal)';
@@ -149,7 +153,8 @@ socket.on('practice-progress', data => {
     el('guess-feedback').textContent = 'Se acabaron los intentos.';
   } else if (data.wrong) {
     el('guess-feedback').style.color = 'var(--bad)';
-    el('guess-feedback').textContent = 'No es esa. Se reveló más del clip.';
+    const restantes = state.maxGuesses - state.guessesUsed;
+    el('guess-feedback').textContent = `No es esa. Te queda${restantes === 1 ? '' : 'n'} ${restantes} intento${restantes === 1 ? '' : 's'}.`;
   }
 });
 
@@ -174,12 +179,13 @@ function handleRoundStart(data) {
   state.gaveUp = false;
   state.maxStage = data.maxStage;
   state.stages = data.stages;
+  state.maxGuesses = data.maxGuesses;
+  state.guessesUsed = 0;
 
   el('round-badge').textContent = state.isPractice ? '🎧 Prueba (no cuenta)' : '🎵 La canción de hoy';
   el('guess-input').value = '';
   el('guess-input').disabled = false;
   el('btn-guess').disabled = false;
-  el('btn-skip').disabled = false;
   el('btn-give-up').disabled = false;
   el('guess-feedback').textContent = '';
   hideSuggestions();
@@ -190,6 +196,11 @@ function handleRoundStart(data) {
   state.audioReady = true;
 
   renderStageDots();
+  updateSkipButton();
+}
+
+function updateSkipButton() {
+  el('btn-skip').disabled = state.solved || state.out || state.currentStage >= state.maxStage;
 }
 
 function renderStageDots() {
@@ -302,6 +313,7 @@ el('btn-give-up').onclick = () => {
 
 socket.on('your-progress', data => {
   state.currentStage = data.stage;
+  state.guessesUsed = data.guessesUsed;
   renderStageDots();
   if (data.solved) {
     state.solved = true;
@@ -315,7 +327,9 @@ socket.on('your-progress', data => {
     el('guess-feedback').textContent = data.gaveUp ? 'Te rendiste.' : 'Se acabaron tus intentos.';
   } else if (data.wrong) {
     el('guess-feedback').style.color = 'var(--bad)';
-    el('guess-feedback').textContent = 'No es esa. Se reveló más del clip.';
+    const restantes = state.maxGuesses - state.guessesUsed;
+    el('guess-feedback').textContent = `No es esa. Te queda${restantes === 1 ? '' : 'n'} ${restantes} intento${restantes === 1 ? '' : 's'}.`;
+    updateSkipButton();
   }
 });
 
