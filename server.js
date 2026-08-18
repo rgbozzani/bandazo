@@ -873,6 +873,29 @@ io.on('connection', socket => {
     }
   });
 
+  socket.on('guess-suggest', async (query, cb) => {
+    const q = (query || '').trim();
+    if (q.length <= 5) return cb({ ok: true, results: [] });
+    try {
+      const url = `https://itunes.apple.com/search?media=music&entity=song&limit=8&term=${encodeURIComponent(q)}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      const seen = new Set();
+      const results = [];
+      for (const r of data.results || []) {
+        if (!r.trackName) continue;
+        const key = normalize(r.trackName) + '|' + normalize(r.artistName || '');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        results.push({ title: r.trackName, artist: r.artistName || '' });
+        if (results.length >= 8) break;
+      }
+      cb({ ok: true, results });
+    } catch (e) {
+      cb({ ok: true, results: [] });
+    }
+  });
+
   socket.on('leave-room', () => handleLeave(socket));
   socket.on('disconnect', () => handleLeave(socket));
 

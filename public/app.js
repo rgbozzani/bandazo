@@ -186,6 +186,7 @@ function handleRoundStart(data) {
   el('guess-feedback').textContent = '';
   hide('grace-note');
   el('feed').innerHTML = '';
+  hideSuggestions();
 
   const audio = el('audio');
   audio.src = data.previewUrl;
@@ -229,13 +230,63 @@ function lockGuessUI(disabled) {
 el('btn-guess').onclick = submitGuess;
 el('guess-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') submitGuess();
+  if (e.key === 'Escape') hideSuggestions();
 });
 function submitGuess() {
   const text = el('guess-input').value.trim();
   if (!text) return;
   socket.emit('player-guess', text);
   el('guess-input').value = '';
+  hideSuggestions();
 }
+
+// ---------- Sugerencias de canciones al escribir (autocompletar) ----------
+let suggestTimer = null;
+el('guess-input').addEventListener('input', () => {
+  clearTimeout(suggestTimer);
+  const text = el('guess-input').value.trim();
+  if (text.length <= 5) {
+    hideSuggestions();
+    return;
+  }
+  suggestTimer = setTimeout(() => {
+    socket.emit('guess-suggest', text, res => {
+      if (res && res.ok) renderSuggestions(res.results);
+    });
+  }, 300);
+});
+
+function renderSuggestions(results) {
+  const box = el('guess-suggestions');
+  if (!results || !results.length) {
+    hideSuggestions();
+    return;
+  }
+  box.innerHTML = results
+    .map(
+      r =>
+        `<div class="sug-item" data-title="${escapeHtml(r.title)}">${escapeHtml(r.title)}<span class="artist">${escapeHtml(r.artist)}</span></div>`
+    )
+    .join('');
+  box.classList.remove('hidden');
+  box.querySelectorAll('.sug-item').forEach(item => {
+    item.onclick = () => {
+      el('guess-input').value = item.dataset.title;
+      hideSuggestions();
+      el('guess-input').focus();
+    };
+  });
+}
+
+function hideSuggestions() {
+  const box = el('guess-suggestions');
+  box.classList.add('hidden');
+  box.innerHTML = '';
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.guess-wrap')) hideSuggestions();
+});
 
 el('btn-skip').onclick = () => socket.emit('player-skip');
 

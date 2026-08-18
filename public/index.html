@@ -88,6 +88,15 @@
     background:linear-gradient(135deg,var(--teal),var(--purple)); color:#153029;
   }
   .row{display:flex; gap:10px;}
+  .guess-wrap{position:relative; flex:1;}
+  .suggestions{
+    position:absolute; top:calc(100% + 4px); left:0; right:0; background:var(--panel2);
+    border:1px solid #444; border-radius:10px; overflow-y:auto; max-height:220px; z-index:20;
+    box-shadow:0 8px 24px rgba(0,0,0,.4);
+  }
+  .suggestions .sug-item{padding:9px 14px; cursor:pointer; font-size:.88rem;}
+  .suggestions .sug-item:hover{background:var(--panel);}
+  .suggestions .sug-item .artist{display:block; color:var(--muted); font-size:.78rem;}
   .feed{margin-top:14px; display:flex; flex-direction:column; gap:6px; max-height:140px; overflow-y:auto;}
   .feed .item{font-size:.85rem; color:var(--muted);}
   .feed .item.win{color:var(--teal);}
@@ -185,7 +194,10 @@
       <audio id="audio" preload="auto"></audio>
 
       <div class="row" style="margin-top:16px">
-        <input type="text" id="guess-input" placeholder="Escribí el nombre de la canción…" autocomplete="off" />
+        <div class="guess-wrap">
+          <input type="text" id="guess-input" placeholder="Escribí el nombre de la canción…" autocomplete="off" />
+          <div class="suggestions hidden" id="guess-suggestions"></div>
+        </div>
         <button id="btn-guess">Adivinar</button>
       </div>
       <div class="row" style="margin-top:8px">
