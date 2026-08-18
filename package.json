@@ -1,7 +1,7 @@
 {
-  "name": "bandazo",
+  "name": "bandletina",
   "version": "1.0.0",
-  "description": "Bandazo - juego multijugador de adivinar canciones por clips, para jugar en salas con amigos.",
+  "description": "Bandletina - juego multijugador de adivinar canciones por clips, una partida diaria entre amigos.",
   "main": "server.js",
   "type": "commonjs",
   "engines": {

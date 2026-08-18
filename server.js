@@ -1,4 +1,4 @@
-// Bandazo - partida diaria compartida para un grupo fijo de 6 amigos.
+// Bandletina - partida diaria compartida para un grupo fijo de 6 amigos.
 // Juego de adivinar canciones por clips de audio, estilo Bandle/Heardle.
 // Usa la API pública de iTunes Search para buscar canciones y obtener previews de 30s.
 // Cada día hay UNA sola partida (mismas canciones para todos), los puntajes de cada
@@ -827,6 +827,6 @@ initDb()
   .catch(e => console.error('No se pudo inicializar la base de datos', e))
   .finally(() => {
     server.listen(PORT, () => {
-      console.log(`Bandazo corriendo en el puerto ${PORT}`);
+      console.log(`Bandletina corriendo en el puerto ${PORT}`);
     });
   });
