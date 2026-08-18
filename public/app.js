@@ -5,11 +5,9 @@ const show = id => el(id).classList.remove('hidden');
 const hide = id => el(id).classList.add('hidden');
 
 let state = {
-  roomCode: null,
-  isHost: false,
   myId: null,
+  myName: null,
   players: [],
-  playlist: [],
   currentStage: 1,
   maxStage: 6,
   stages: [1, 2, 4, 7, 11, 16],
@@ -18,145 +16,102 @@ let state = {
   audioReady: false,
 };
 
-// ---------- Landing: tabs ----------
-el('tab-create').onclick = () => {
-  el('tab-create').classList.add('active');
-  el('tab-join').classList.remove('active');
-  show('panel-create');
-  hide('panel-join');
-};
-el('tab-join').onclick = () => {
-  el('tab-join').classList.add('active');
-  el('tab-create').classList.remove('active');
-  show('panel-join');
-  hide('panel-create');
-};
-
-// Auto-fill join code from URL (?room=CODE)
-const urlParams = new URLSearchParams(location.search);
-const roomFromUrl = urlParams.get('room');
-if (roomFromUrl) {
-  el('tab-join').click();
-  el('join-code').value = roomFromUrl.toUpperCase();
-}
-
-// ---------- Create / Join ----------
-el('btn-create').onclick = () => {
-  const name = el('create-name').value.trim();
-  if (!name) return (el('create-error').textContent = 'Poné tu nombre.');
-  el('btn-create').disabled = true;
-  socket.emit('create-room', name, res => {
-    el('btn-create').disabled = false;
-    if (!res.ok) return (el('create-error').textContent = res.error);
-    state.isHost = true;
-    state.myId = res.you.id;
-    enterLobby(res.room);
-  });
-};
-
-el('btn-join').onclick = () => {
-  const name = el('join-name').value.trim();
-  const code = el('join-code').value.trim().toUpperCase();
-  if (!name) return (el('join-error').textContent = 'Poné tu nombre.');
-  if (!code) return (el('join-error').textContent = 'Poné el código de sala.');
-  el('btn-join').disabled = true;
-  socket.emit('join-room', { code, playerName: name }, res => {
-    el('btn-join').disabled = false;
-    if (!res.ok) return (el('join-error').textContent = res.error);
-    state.isHost = false;
-    state.myId = res.you.id;
-    enterLobby(res.room);
-  });
-};
-
-function enterLobby(room) {
-  state.roomCode = room.code;
-  hide('screen-landing');
-  show('screen-lobby');
-  el('lobby-code').textContent = room.code;
-  const link = `${location.origin}${location.pathname}?room=${room.code}`;
-  el('share-link').value = link;
-  if (state.isHost) {
-    show('host-playlist-card');
-    hide('guest-wait-card');
-    loadPacks();
-  } else {
-    hide('host-playlist-card');
-    show('guest-wait-card');
-  }
-  renderRoom(room);
-}
-
-// ---------- Packs sugeridos ----------
-function loadPacks() {
-  socket.emit('list-packs', packs => {
-    const wrap = el('pack-buttons');
-    wrap.innerHTML = '';
-    packs.forEach(p => {
-      const btn = document.createElement('button');
-      btn.className = 'secondary small';
-      btn.type = 'button';
-      btn.textContent = `${p.label} (${p.count})`;
-      btn.onclick = () => addPack(p.id, p.label, btn);
-      wrap.appendChild(btn);
-    });
-  });
-}
-
-function addPack(id, label, btn) {
-  btn.disabled = true;
-  const original = btn.textContent;
-  btn.textContent = 'Agregando…';
-  el('pack-status').textContent = `Buscando canciones de "${label}"…`;
-  socket.emit('add-pack', id, res => {
-    btn.disabled = false;
-    btn.textContent = original;
-    if (!res.ok) {
-      el('pack-status').textContent = res.error || 'No se pudo agregar el pack.';
-      return;
-    }
-    let msg = `${label}: se agregaron ${res.added} canciones.`;
-    if (res.skipped) msg += ` (${res.skipped} ya estaban en la lista)`;
-    if (res.failed) msg += ` (${res.failed} no se encontraron)`;
-    el('pack-status').textContent = msg;
-  });
-}
-
-el('btn-copy-link').onclick = () => {
-  el('share-link').select();
-  navigator.clipboard?.writeText(el('share-link').value).catch(() => {});
-  el('btn-copy-link').textContent = '¡Copiado!';
-  setTimeout(() => (el('btn-copy-link').textContent = 'Copiar link'), 1500);
-};
-
-// ---------- Song search (host only) ----------
-let searchTimer = null;
-el('song-search').oninput = e => {
-  clearTimeout(searchTimer);
-  const q = e.target.value.trim();
-  el('song-results').innerHTML = '';
-  if (!q) return;
-  searchTimer = setTimeout(() => {
-    socket.emit('search-songs', q, res => {
-      if (!res.ok) return;
-      el('song-results').innerHTML = '';
-      res.results.forEach(song => {
-        const div = document.createElement('div');
-        div.className = 'song-item';
-        div.innerHTML = `<img src="${song.artwork}" onerror="this.style.visibility='hidden'"/>
-          <div class="meta"><div class="t">${escapeHtml(song.title)}</div><div class="a">${escapeHtml(song.artist)}</div></div>
-          <button class="small secondary" type="button">Agregar</button>`;
-        div.querySelector('button').onclick = () => {
-          socket.emit('add-song', song);
-        };
-        el('song-results').appendChild(div);
-      });
-    });
-  }, 350);
-};
-
 function escapeHtml(s) {
   return (s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function showScreen(id) {
+  ['screen-landing', 'screen-already', 'screen-lobby', 'screen-game', 'screen-round-end', 'screen-final'].forEach(s => hide(s));
+  show(id);
+}
+
+// ---------- Landing: lista de jugadores + tabla del mes ----------
+socket.on('connect', () => {
+  socket.emit('get-players', players => {
+    const sel = el('player-select');
+    players.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      sel.appendChild(opt);
+    });
+  });
+  loadStandings();
+});
+
+socket.on('standings-updated', monthly => renderStandings(monthly));
+
+function loadStandings() {
+  socket.emit('get-standings', res => {
+    if (res.ok) renderStandings(res.monthly);
+  });
+}
+
+function renderStandings(monthly) {
+  const list = el('standings-list');
+  list.innerHTML = monthly.standings
+    .map((p, i) => {
+      const rankCls = i === 0 ? 'p1' : i === 1 ? 'p2' : i === 2 ? 'p3' : '';
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1 + '.';
+      return `<li class="${rankCls}"><span class="rank">${medal}</span><span class="name">${escapeHtml(p.name)}</span><span class="total">${p.total} pts</span></li>`;
+    })
+    .join('');
+  el('standings-note').textContent = monthly.isMonthEnd
+    ? 'Hoy es el último día hábil del mes: ¡se define el podio!'
+    : `Acumulado de ${monthly.month}. El podio se arma el último día hábil del mes.`;
+}
+
+// ---------- Entrar a la partida de hoy ----------
+el('btn-join').onclick = () => {
+  const name = el('player-select').value;
+  if (!name) return (el('join-error').textContent = 'Elegí tu nombre de la lista.');
+  el('btn-join').disabled = true;
+  socket.emit('join-today', name, res => {
+    el('btn-join').disabled = false;
+    if (!res.ok) return (el('join-error').textContent = res.error);
+    state.myName = name;
+    if (res.finished) {
+      renderAlreadyPlayed(res.results);
+      return;
+    }
+    state.players = res.room.players;
+    renderLobby(res.room);
+    if (res.current) {
+      showScreen('screen-game');
+      handleRoundStart(res.current);
+    } else if (res.room.state === 'round-end') {
+      showScreen('screen-round-end');
+    } else {
+      showScreen('screen-lobby');
+    }
+  });
+};
+
+function renderAlreadyPlayed(results) {
+  el('already-results').innerHTML = results
+    .map(p => `<li><span>${escapeHtml(p.name)}</span><span class="score">${p.score}</span></li>`)
+    .join('');
+  showScreen('screen-already');
+}
+
+el('btn-already-back').onclick = () => {
+  loadStandings();
+  showScreen('screen-landing');
+};
+
+el('btn-final-back').onclick = () => {
+  loadStandings();
+  showScreen('screen-landing');
+};
+
+// ---------- Lobby ----------
+function renderLobby(room) {
+  el('lobby-date').textContent = room.date;
+  el('song-count-text').textContent = `${room.songCount} canciones listas para hoy`;
+  el('lobby-players').innerHTML = room.players
+    .map(p => `<li><span>${escapeHtml(p.name)}</span><span class="score">${p.score}</span></li>`)
+    .join('');
+  el('btn-start').disabled = room.players.length === 0;
 }
 
 el('btn-start').onclick = () => socket.emit('start-game');
@@ -165,46 +120,23 @@ el('btn-next-round').onclick = () => socket.emit('next-round');
 // ---------- Room updates ----------
 socket.on('room-update', room => {
   state.players = room.players;
-  state.playlist = room.playlist;
-  renderRoom(room);
+  if (room.state === 'lobby') renderLobby(room);
+  renderPlayerLists();
 });
 
-function renderRoom(room) {
-  const playersHtml = room.players
-    .map(p => `<li><span>${p.isHost ? '★ ' : ''}${escapeHtml(p.name)}</span><span class="score">${p.score}</span></li>`)
-    .join('');
-  el('lobby-players').innerHTML = playersHtml;
-  el('game-players').innerHTML = playersHtml;
-  el('round-end-players').innerHTML = playersHtml;
-
-  const plHtml = room.playlist
-    .map(
-      (s, i) =>
-        `<div class="song-item"><img src="${s.artwork}" onerror="this.style.visibility='hidden'"/>
-        <div class="meta"><div class="t">${escapeHtml(s.title)}</div><div class="a">${escapeHtml(s.artist)}</div></div>
-        ${state.isHost && room.state === 'lobby' ? `<button class="small secondary" data-i="${i}">Quitar</button>` : ''}
-        </div>`
-    )
-    .join('');
-  el('playlist-list').innerHTML = plHtml;
-  el('playlist-list-guest').innerHTML = plHtml || '<p class="muted">Aún no hay canciones.</p>';
-  el('playlist-list').querySelectorAll('button[data-i]').forEach(btn => {
-    btn.onclick = () => socket.emit('remove-song', Number(btn.dataset.i));
-  });
-
-  if (state.isHost) {
-    el('btn-start').disabled = room.playlist.length === 0;
-    el('start-hint').textContent =
-      room.playlist.length === 0 ? 'Agregá al menos una canción para empezar.' : `${room.playlist.length} canción(es) en la playlist.`;
-  }
+function renderPlayerLists() {
+  const html = state.players.map(p => `<li><span>${escapeHtml(p.name)}</span><span class="score">${p.score}</span></li>`).join('');
+  el('game-players').innerHTML = html;
+  el('round-end-players').innerHTML = html;
 }
 
 // ---------- Game flow ----------
 socket.on('round-start', data => {
-  hide('screen-lobby');
-  hide('screen-round-end');
-  show('screen-game');
+  showScreen('screen-game');
+  handleRoundStart(data);
+});
 
+function handleRoundStart(data) {
   state.currentStage = 1;
   state.solved = false;
   state.out = false;
@@ -227,7 +159,7 @@ socket.on('round-start', data => {
   state.audioReady = true;
 
   renderStageDots();
-});
+}
 
 function renderStageDots() {
   const wrap = el('stage-dots');
@@ -279,7 +211,7 @@ socket.on('your-progress', data => {
   if (data.solved) {
     state.solved = true;
     lockGuessUI(true);
-    el('guess-feedback').style.color = 'var(--good)';
+    el('guess-feedback').style.color = 'var(--teal)';
     el('guess-feedback').textContent = '¡Correcto! Esperá a que termine la ronda.';
   } else if (data.out) {
     state.out = true;
@@ -312,32 +244,21 @@ socket.on('grace-period', data => {
 });
 
 socket.on('round-end', data => {
-  hide('screen-game');
-  show('screen-round-end');
+  showScreen('screen-round-end');
   el('reveal-artwork').src = data.artwork;
   el('reveal-title').textContent = data.title;
   el('reveal-artist').textContent = data.artist;
   const playersHtml = data.players
     .slice()
     .sort((a, b) => b.score - a.score)
-    .map(p => `<li><span>${p.isHost ? '★ ' : ''}${escapeHtml(p.name)}</span><span class="score">${p.score}</span></li>`)
+    .map(p => `<li><span>${escapeHtml(p.name)}</span><span class="score">${p.score}</span></li>`)
     .join('');
   el('round-end-players').innerHTML = playersHtml;
-
-  if (state.isHost) {
-    show('btn-next-round');
-    hide('wait-host-note');
-    el('btn-next-round').textContent = data.isLastRound ? 'Ver resultados finales' : 'Siguiente ronda';
-  } else {
-    hide('btn-next-round');
-    show('wait-host-note');
-  }
+  el('btn-next-round').textContent = data.isLastRound ? 'Ver resultados finales' : 'Siguiente ronda';
 });
 
 socket.on('game-end', data => {
-  hide('screen-round-end');
-  hide('screen-game');
-  show('screen-final');
+  showScreen('screen-final');
   const sorted = data.players.slice().sort((a, b) => b.score - a.score);
   el('final-players').innerHTML = sorted
     .map(
@@ -345,4 +266,22 @@ socket.on('game-end', data => {
         `<li class="${i === 0 ? 'first' : ''}"><span>${i === 0 ? '🏆 ' : `${i + 1}. `}${escapeHtml(p.name)}</span><span class="score">${p.score}</span></li>`
     )
     .join('');
+
+  if (data.monthly && data.monthly.isMonthEnd) {
+    el('month-end-card').style.display = '';
+    const top3 = data.monthly.standings.slice(0, 3);
+    const stepClass = ['s1', 's2', 's3'];
+    const medal = ['🥇', '🥈', '🥉'];
+    // orden visual: 2do, 1ro, 3ro (podio), pero mantenemos el orden de datos top3[0..2]
+    el('podium').innerHTML = top3
+      .map(
+        (p, i) =>
+          `<div class="step ${stepClass[i]}"><span class="medal">${medal[i]}</span>${escapeHtml(p.name)}<div>${p.total} pts</div></div>`
+      )
+      .join('');
+  } else {
+    el('month-end-card').style.display = 'none';
+  }
+
+  loadStandings();
 });
